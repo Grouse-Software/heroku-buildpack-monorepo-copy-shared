@@ -1,0 +1,61 @@
+#!/bin/bash
+# Heroku buildpack compile script
+# This buildpack copies the shared folder into frontend/apps/app before
+# the monorepo buildpack runs, so it gets included when the app is copied to root
+
+set -e
+
+# Get the buildpack's bin directory
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Heroku passes the build directory as the first argument to compile
+# This is where the git repository was cloned
+# $1 = build directory (where the app code is)
+# $2 = cache directory  
+# $3 = env directory (contains config vars as files)
+
+BUILD_DIR="$1"
+ENV_DIR="$3"
+
+# If $1 is not set or empty, try to find it
+if [ -z "$BUILD_DIR" ] || [ ! -d "$BUILD_DIR" ]; then
+  # Try to find /tmp/build_* directories
+  if ls -d /tmp/build_* 1>/dev/null 2>&1; then
+    BUILD_DIR="$(ls -td /tmp/build_* 2>/dev/null | head -1)"
+  else
+    BUILD_DIR="$(pwd)"
+  fi
+fi
+
+# Load environment variables from env directory if it exists
+if [ -n "$ENV_DIR" ] && [ -d "$ENV_DIR" ]; then
+  # Source all files in the env directory
+  for env_file in "$ENV_DIR"/*; do
+    if [ -f "$env_file" ]; then
+      # Read the value from the file and export it
+      var_name="$(basename "$env_file")"
+      var_value="$(cat "$env_file")"
+      export "$var_name=$var_value"
+    fi
+  done
+fi
+
+echo "       DEBUG: Build directory argument (\$1): $1"
+echo "       DEBUG: Resolved BUILD_DIR: $BUILD_DIR"
+echo "       DEBUG: Env directory: $ENV_DIR"
+echo "       DEBUG: APP_BASE from env: ${APP_BASE:-not set}"
+
+# Export BUILD_DIR so prepare-shared can use it
+export BUILD_DIR
+
+# Source the prepare-shared script if it exists
+if [ -f "$BIN_DIR/prepare-shared" ]; then
+  source "$BIN_DIR/prepare-shared"
+else
+  echo "       WARNING: prepare-shared script not found in $BIN_DIR"
+  echo "       Make sure bin/prepare-shared exists in your buildpack"
+fi
+
+# Exit successfully - this buildpack just prepares the shared folder
+# The monorepo buildpack will handle the actual app copying
+
